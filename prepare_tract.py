@@ -91,25 +91,55 @@ def get_city_boundary(tracts: gpd.GeoDataFrame) -> gpd.GeoSeries:
 # ================================
 
 def add_commute_cost(tracts: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    """Add commuting cost based on centroid distance to Chicago downtown (km)."""
+    """
+    Add commuting cost based on centroid distance to multiple Chicago employment centers (km).
+    Calculates distance to 4 major employment centroids and uses the minimum distance.
+    """
     tracts = tracts.copy()
 
     # Ensure coordinate reference system exists
     if tracts.crs is None:
         tracts.set_crs(epsg=4326, inplace=True)
 
-    # Chicago downtown (The Loop)
-    cbd = gpd.GeoSeries([Point(-87.6298, 41.8781)], crs="EPSG:4326")
+    # Define multiple employment centroids
+    employment_centers = {
+        'Loop': Point(-87.6298, 41.8781),           # Chicago downtown (The Loop)
+        'OHare': Point(-87.9090, 41.9810),          # O'Hare area
+        'Elk_Grove': Point(-87.9700, 41.9900),      # Elk Grove
+        'Calumet': Point(-87.5700, 41.6900)         # Calumet
+    }
+    
+    # Convert employment centers to GeoDataFrame
+    centers_gdf = gpd.GeoDataFrame(
+        geometry=list(employment_centers.values()),
+        index=list(employment_centers.keys()),
+        crs="EPSG:4326"
+    )
 
     # Convert to metric CRS for distance calculations
     metric_crs = 26916  # UTM Zone 16N (covers Chicago region)
     tracts_metric = tracts.to_crs(epsg=metric_crs)
-    cbd_metric = cbd.to_crs(epsg=metric_crs).iloc[0]
+    centers_metric = centers_gdf.to_crs(epsg=metric_crs)
 
     # Compute centroid distances in km
     centroids = tracts_metric.geometry.centroid
-    dist_meters = centroids.distance(cbd_metric)
-    tracts["dw"] = dist_meters / 1000.0
+    
+    # Calculate distance to each employment center
+    distances = {}
+    for center_name, center_geom in centers_metric.geometry.items():
+        dist_meters = centroids.distance(center_geom)
+        distances[f'dist_{center_name}'] = dist_meters / 1000.0
+    
+    # Add individual distances to tracts (optional, for analysis)
+    for col_name, dist_values in distances.items():
+        tracts[col_name] = dist_values
+    
+    # Calculate minimum distance to any employment center
+    dist_df = pd.DataFrame(distances)
+    tracts["dw"] = dist_df.min(axis=1)
+    
+    # Optionally, record which center is closest
+    tracts["closest_center"] = dist_df.idxmin(axis=1).str.replace('dist_', '')
 
     return tracts
 
