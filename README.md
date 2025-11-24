@@ -99,6 +99,26 @@ The script expects a shapefile at `data/chicago_tracts.shp` containing Chicago c
 python prepare_tract.py
 ```
 
+### Choosing model dynamics
+
+- **Full dynamics (default):** Uses rents, distance, income mobility, and social preferences (`dynamics.py`).
+- **Base model (share-only):** Agents move only to increase own-group share, ignoring rents/distance/mobility (`base_model.py`).
+
+Switch in `animate_agents.py` by setting `use_base_model`. Example:
+
+```python
+agent_history = run_simulation_with_agent_history(
+    agents,
+    tracts,
+    T=20,
+    seed=123,
+    use_base_model=True,  # False for full dynamics
+)
+```
+
+For the base model you can set an own-group share tolerance via `tolerance`:
+`"very_high"` = 0.25, `"medium"` = 0.50, `"very_low"` = 0.75 (or pass a custom float).
+
 ### Configuration
 
 In the main execution block, set:
@@ -152,4 +172,3 @@ In the main execution block, set:
 - Group shares are normalized to ensure they sum to 1.0 for each tract
 - All distance calculations use metric CRS (UTM) for accuracy
 - The interactive map restricts panning to Chicago city bounds to exclude Lake Michigan
-
