@@ -31,8 +31,8 @@ The `prepare_tract.py` script processes Chicago census tracts to create a datase
 ## Key Variables and Calculations
 
 ### 1. Commuting Distance (`dw`)
-- **Definition**: Distance from tract centroid to Chicago downtown (The Loop)
-- **Location**: Point(-87.6298, 41.8781)
+- **Definition**: Distance from tract centroid to 3 main commerce areas in Chicago (The Loop, O'Hare, Elk Grove, Calumet)
+- **Location**: Point(-87.6298, 41.8781), Point(-87.9090, 41.9810), Point(-87.9700, 41.9900), Point(-87.5700, 41.6900) 
 - **Method**: Calculated in UTM Zone 16N (EPSG:26916) for accurate metric distances
 - **Units**: Kilometers
 
