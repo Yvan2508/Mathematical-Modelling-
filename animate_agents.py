@@ -28,6 +28,8 @@ def run_simulation_with_agent_history(
     tracts: gpd.GeoDataFrame,
     T: int = 20,
     seed: int = 0,
+    use_base_model: bool = False,
+    tolerance=None,
 ) -> list:
     """
     Run the full simulation and return agent history for animation.
@@ -42,24 +44,36 @@ def run_simulation_with_agent_history(
         Number of time periods to simulate
     seed : int
         Random seed
+    use_base_model : bool
+        If True, use the simplified base model (only own-group share preferences).
+        If False, use the full dynamics model.
+    tolerance : float or str, optional
+        Only used when use_base_model=True. Own-group share threshold
+        (e.g., 'very_high', 'medium', 'very_low' or a custom float).
     
     Returns
     -------
     agent_history : list
         List of DataFrames, one per time step, showing agent locations
     """
-    from dynamics import one_period_update
     import numpy as np
+    if use_base_model:
+        from base_model import one_period_update_base
+    else:
+        from dynamics import one_period_update
     
     rng = np.random.default_rng(seed)
     
-    # Get initial rents
-    if "p0" in tracts.columns:
-        omega_t = tracts["p0"].values.copy()
-    elif "omega_bar" in tracts.columns:
-        omega_t = tracts["omega_bar"].values.copy()
+    # Get initial rents (ignored in base model)
+    if use_base_model:
+        omega_t = np.zeros(len(tracts), dtype=float)
     else:
-        raise ValueError("Tracts must have 'p0' or 'omega_bar' column")
+        if "p0" in tracts.columns:
+            omega_t = tracts["p0"].values.copy()
+        elif "omega_bar" in tracts.columns:
+            omega_t = tracts["omega_bar"].values.copy()
+        else:
+            raise ValueError("Tracts must have 'p0' or 'omega_bar' column")
     
     # Store agent history (one DataFrame per time step)
     agent_history = [agents.copy()]
@@ -67,9 +81,15 @@ def run_simulation_with_agent_history(
     # Run simulation period by period
     for t in range(T):
         print(f"Simulating period {t+1}/{T}...", end=" ", flush=True)
-        agents, omega_t, H_n, H_ng, s_ng = one_period_update(
-            agents, tracts, omega_t, rng
-        )
+        if use_base_model:
+            tol_arg = tolerance if tolerance is not None else "medium"
+            agents, omega_t, H_n, H_ng, s_ng = one_period_update_base(
+                agents, tracts, omega_t, rng, tolerance=tol_arg
+            )
+        else:
+            agents, omega_t, H_n, H_ng, s_ng = one_period_update(
+                agents, tracts, omega_t, rng
+            )
         # Store agent state at this time step
         agent_history.append(agents.copy())
         print(f"✓ ({len(agent_history)} steps stored)", flush=True)
@@ -615,8 +635,11 @@ if __name__ == "__main__":
         )
         print(f"Initialized {len(agents)} agents (households)")
         
-        # Run simulation using real dynamics
-        print("\nRunning simulation with real dynamics...")
+        # Choose model variant
+        use_base_model = False  # Set True to use the simplified own-group share model
+
+        # Run simulation
+        print("\nRunning simulation with real dynamics..." if not use_base_model else "\nRunning simulation with base model...")
         print("=" * 60)
         T_periods = 100  # 42 periods = 43 steps total (initial state + 42 periods)
         print(f"Simulating {T_periods} periods with {len(agents)} agents...")
@@ -626,7 +649,8 @@ if __name__ == "__main__":
             agents, 
             tracts, 
             T=T_periods, 
-            seed=123
+            seed=123,
+            use_base_model=use_base_model,
         )
         print("=" * 60)
         print(f"\nSimulation complete! Generated {len(agent_history)} time steps")
@@ -649,5 +673,3 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Could not create video: {e}")
             print("HTML animation created successfully.")
-
-
