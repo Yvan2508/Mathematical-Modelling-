@@ -154,6 +154,12 @@ def create_animated_html_map(history: list,
     center_lon = tracts.geometry.centroid.x.mean()
     
     group_colors = {'B': '#e74c3c', 'W': '#3498db', 'A': '#2ecc71', 'H': '#f39c12'}
+    job_centers = [
+        {"name": "Loop", "lat": 41.8781, "lon": -87.6298},
+        {"name": "O'Hare", "lat": 41.9810, "lon": -87.9090},
+        {"name": "Elk Grove", "lat": 41.9900, "lon": -87.9700},
+        {"name": "Calumet", "lat": 41.6900, "lon": -87.5700},
+    ]
     # Preserve tract outlines (GeoJSON) so geography stays visible in the map background
     tracts_geojson = json.loads(
         tracts.to_crs(epsg=4326)[['tract_id', 'geometry']].to_json()
@@ -205,10 +211,12 @@ def create_animated_html_map(history: list,
         step_data.append(step_markers)
     
     num_steps = len(sampled_history)
+    num_steps_minus_one = max(num_steps - 1, 0)
     
     # Embed step data as JSON
     step_data_json = json.dumps(step_data)
     tracts_geojson_json = json.dumps(tracts_geojson)
+    job_centers_json = json.dumps(job_centers)
     
     # Create standalone HTML file with Leaflet.js
     html_content = f'''<!DOCTYPE html>
@@ -255,6 +263,22 @@ def create_animated_html_map(history: list,
             border-radius: 5px;
             padding: 10px;
         }}
+        .legend-dot {{
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }}
+        .legend-job {{
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            margin-right: 6px;
+            background: #8e44ad;
+            border: 1px solid #2c2050;
+        }}
         button {{
             flex: 1;
             padding: 8px;
@@ -274,6 +298,15 @@ def create_animated_html_map(history: list,
             gap: 5px;
             margin-bottom: 10px;
         }}
+        .pie-marker {{
+            background: transparent;
+            border: none;
+        }}
+        .pie-marker .pie {{
+            border-radius: 50%;
+            border: 1px solid #333;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+        }}
     </style>
 </head>
 <body>
@@ -281,6 +314,9 @@ def create_animated_html_map(history: list,
     
     <div id="animation-controls">
         <h4 style="margin-top: 0;">Animation Controls</h4>
+        <div id="step-indicator" style="margin: 4px 0 10px 0; font-weight: bold; color: #333;">
+            t = 0 / {num_steps_minus_one}
+        </div>
         <div class="button-group">
             <button id="prev-btn">◀ Prev</button>
             <button id="play-btn">Play</button>
@@ -304,10 +340,12 @@ def create_animated_html_map(history: list,
     
     <div id="legend">
         <h4>Agent Groups</h4>
-        <p><span style="color:#e74c3c">●</span> Black (B)</p>
-        <p><span style="color:#3498db">●</span> White (W)</p>
-        <p><span style="color:#2ecc71">●</span> Asian (A)</p>
-        <p><span style="color:#f39c12">●</span> Hispanic (H)</p>
+        <p><span class="legend-dot" style="background:#e74c3c"></span> Black (B)</p>
+        <p><span class="legend-dot" style="background:#3498db"></span> White (W)</p>
+        <p><span class="legend-dot" style="background:#2ecc71"></span> Asian (A)</p>
+        <p><span class="legend-dot" style="background:#f39c12"></span> Hispanic (H)</p>
+        <hr>
+        <p><span class="legend-job"></span> Job Center</p>
     </div>
     
     <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
@@ -318,16 +356,25 @@ def create_animated_html_map(history: list,
         var stepData = {step_data_json};
         var numSteps = {num_steps};
         var tractsGeoJson = {tracts_geojson_json};
+        var jobCenters = {job_centers_json};
         
         // Animation state
         var currentStep = 0;
         var isPlaying = false;
         var intervalId = null;
         var speed = 500;
+        var groupColors = {{
+            B: '#e74c3c',
+            W: '#3498db',
+            A: '#2ecc71',
+            H: '#f39c12'
+        }};
+        var groupOrder = ['B', 'W', 'A', 'H'];
         
         // Map and layers
         var map = null;
         var markerLayer = null;
+        var jobCenterLayer = null;
         var baseLayers = {{}};
         
         // Initialize map
@@ -340,6 +387,7 @@ def create_animated_html_map(history: list,
             
             // Create marker layer
             markerLayer = L.layerGroup().addTo(map);
+            jobCenterLayer = L.layerGroup().addTo(map);
             
             // Add tile layers
             baseLayers['OpenStreetMap'] = L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
@@ -390,6 +438,20 @@ def create_animated_html_map(history: list,
                     }};
                 }}
             }}).addTo(map);
+
+            // Add job center markers
+            var centerIcon = L.divIcon({{
+                className: 'job-center-icon',
+                html: '<div style="width:16px;height:16px;background:#8e44ad;border:2px solid #2c2050;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,0.35);"></div>',
+                iconSize: [16, 16],
+                iconAnchor: [8, 8]
+            }});
+
+            jobCenters.forEach(function(c) {{
+                L.marker([c.lat, c.lon], {{ icon: centerIcon }})
+                    .bindTooltip('Job Center: ' + c.name, {{permanent: false, direction: 'top'}})
+                    .addTo(jobCenterLayer);
+            }});
         }}
         
         // Switch map theme
@@ -411,6 +473,10 @@ def create_animated_html_map(history: list,
             if (step < 0 || step >= numSteps) return;
             
             currentStep = step;
+            var indicator = document.getElementById('step-indicator');
+            if (indicator) {{
+                indicator.textContent = 't = ' + step + ' / ' + (numSteps - 1);
+            }}
             
             // Clear existing markers
             markerLayer.clearLayers();
@@ -418,6 +484,29 @@ def create_animated_html_map(history: list,
             // Get markers for this step
             var markers = stepData[step];
             if (!markers || markers.length === 0) return;
+
+            // Helper to create a conic-gradient pie from group shares
+            function buildPieBackground(groupCounts) {{
+                var total = 0;
+                for (var i = 0; i < groupOrder.length; i++) {{
+                    var g = groupOrder[i];
+                    total += groupCounts[g] || 0;
+                }}
+                if (total === 0) {{
+                    return '#cccccc';
+                }}
+                var segments = [];
+                var current = 0;
+                for (var j = 0; j < groupOrder.length; j++) {{
+                    var group = groupOrder[j];
+                    var share = (groupCounts[group] || 0) / total;
+                    var start = current * 100;
+                    var end = (current + share) * 100;
+                    segments.push(groupColors[group] + ' ' + start + '% ' + end + '%');
+                    current += share;
+                }}
+                return 'conic-gradient(' + segments.join(', ') + ')';
+            }}
             
             // Create markers
             for (var i = 0; i < markers.length; i++) {{
@@ -432,17 +521,30 @@ def create_animated_html_map(history: list,
                     'Hispanic (H): ' + (m.group_counts.H || 0);
                 
                 // Create tooltip
-                var tooltipContent = 'Tract ' + m.tract_id + ': ' + m.total_agents + ' agents';
+                var totalAgents = m.total_agents || 0;
+                function pct(val) {{
+                    if (!totalAgents) return '0%';
+                    return ((val / totalAgents) * 100).toFixed(1) + '%';
+                }}
+                var tooltipContent = '<b>Tract ' + m.tract_id + '</b><br>' +
+                    'B: ' + pct(m.group_counts.B || 0) + ' &nbsp; ' +
+                    'W: ' + pct(m.group_counts.W || 0) + ' &nbsp; ' +
+                    'A: ' + pct(m.group_counts.A || 0) + ' &nbsp; ' +
+                    'H: ' + pct(m.group_counts.H || 0);
                 
-                // Create marker
-                var marker = L.circleMarker([m.lat, m.lon], {{
-                    radius: m.radius,
-                    fillColor: m.color,
-                    color: '#333',
-                    weight: 1,
-                    opacity: 1,
-                    fillOpacity: 0.7
+                // Build pie-marker icon
+                var diameter = m.radius * 2;
+                var pieBackground = buildPieBackground(m.group_counts || {{}});
+                var iconHtml = '<div class="pie" style="width:' + diameter + 'px;height:' + diameter + 'px;background:' + pieBackground + ';"></div>';
+                var icon = L.divIcon({{
+                    className: 'pie-marker',
+                    html: iconHtml,
+                    iconSize: [diameter, diameter],
+                    iconAnchor: [diameter / 2, diameter / 2]
                 }});
+                
+                // Create marker with pie chart fill
+                var marker = L.marker([m.lat, m.lon], {{ icon: icon }});
                 
                 marker.bindPopup(popupContent);
                 marker.bindTooltip(tooltipContent);
@@ -659,7 +761,7 @@ if __name__ == "__main__":
         print(f"Initialized {len(agents)} agents (households)")
         
         # Choose model variant
-        use_base_model = False  # Set True to use the simplified own-group share model
+        use_base_model = True  # Simple model: only own-group share preferences (no rents/amenities)
 
         # Run simulation
         print("\nRunning simulation with real dynamics..." if not use_base_model else "\nRunning simulation with base model...")

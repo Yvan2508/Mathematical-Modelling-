@@ -161,10 +161,13 @@ def run_base_simulation(
 
 
 if __name__ == "__main__":
-    # Example usage when run directly: simulate and auto-generate animation.
+    """
+    Run the simplified base model with its own defaults and emit animations.
+    Only own-group share matters; rents/amenities/income are ignored.
+    """
     from pathlib import Path
 
-    tracts_path = "data/chicago_tracts_enriched.shp"
+    tracts_path = Path("data") / "chicago_tracts_enriched.shp"
     try:
         import geopandas as gpd
         from agents import initialize_agents
@@ -174,21 +177,37 @@ if __name__ == "__main__":
             create_animated_video,
         )
     except ImportError:
-        raise SystemExit("Install geopandas, shapely, matplotlib, and folium to run the example.")
+        raise SystemExit("Install geopandas, shapely, matplotlib, and folium to run the base model animation.")
 
-    tolerance = "medium"
-    T_periods = 5
-    seed = 1
+    # Base-model defaults (adjust as needed)
+    tolerance = "very_high"      # own-group share threshold ("very_high", "medium", "very_low", or float)
+    T_periods = 40            # number of periods to simulate
+    rng_seed = 1              # seed for relocation randomness
+    agent_seed = 42           # seed for initial agent placement
+    N_households = 10_000     # cap agent count to keep base model runtime similar to full model
+    occupancy_rate = 0.95     # ignored when N_households is provided
 
+    if not tracts_path.exists():
+        raise SystemExit(f"Tracts file not found at {tracts_path}. Run prepare_tract.py first.")
+
+    print("Loading tracts for base model...")
     tracts = gpd.read_file(tracts_path)
-    agents_init = initialize_agents(tracts, occupancy_rate=0.95, seed=42)
+
+    print(f"Initializing agents (N_households={N_households}, occupancy_rate={occupancy_rate})...")
+    agents_init = initialize_agents(
+        tracts,
+        N_households=N_households,
+        occupancy_rate=occupancy_rate,
+        seed=agent_seed
+    )
+    print(f"Initialized {len(agents_init)} agents across {len(tracts)} tracts.")
 
     print(f"Running base model for {T_periods} periods with tolerance='{tolerance}'...")
     agent_history = run_simulation_with_agent_history(
         agents_init,
         tracts,
         T=T_periods,
-        seed=seed,
+        seed=rng_seed,
         use_base_model=True,
         tolerance=tolerance,
     )
@@ -199,11 +218,11 @@ if __name__ == "__main__":
     output_dir = Path("data") / "figures"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    html_path = output_dir / f"base_model_animation_tol_{tolerance}.html"
+    html_path = output_dir / f"base_model_animation_T{T_periods}_tol_{tolerance}.html"
     print(f"Creating HTML animation at {html_path}...")
     create_animated_html_map(agent_history, tracts, html_path, sample_rate=1)
 
-    video_path = output_dir / f"base_model_animation_tol_{tolerance}.gif"
+    video_path = output_dir / f"base_model_animation_T{T_periods}_tol_{tolerance}.gif"
     try:
         print(f"Creating GIF animation at {video_path}...")
         create_animated_video(agent_history, tracts, video_path, sample_rate=1, fps=5)
