@@ -17,6 +17,7 @@ from shapely.geometry import Point
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import matplotlib.patches as mpatches
+import json
 
 
 # ==============================
@@ -153,9 +154,12 @@ def create_animated_html_map(history: list,
     center_lon = tracts.geometry.centroid.x.mean()
     
     group_colors = {'B': '#e74c3c', 'W': '#3498db', 'A': '#2ecc71', 'H': '#f39c12'}
+    # Preserve tract outlines (GeoJSON) so geography stays visible in the map background
+    tracts_geojson = json.loads(
+        tracts.to_crs(epsg=4326)[['tract_id', 'geometry']].to_json()
+    )
     
     # Collect step data for JavaScript animation
-    import json
     step_data = []
     
     for step, agents in enumerate(sampled_history):
@@ -204,6 +208,7 @@ def create_animated_html_map(history: list,
     
     # Embed step data as JSON
     step_data_json = json.dumps(step_data)
+    tracts_geojson_json = json.dumps(tracts_geojson)
     
     # Create standalone HTML file with Leaflet.js
     html_content = f'''<!DOCTYPE html>
@@ -312,6 +317,7 @@ def create_animated_html_map(history: list,
         var centerLon = {center_lon};
         var stepData = {step_data_json};
         var numSteps = {num_steps};
+        var tractsGeoJson = {tracts_geojson_json};
         
         // Animation state
         var currentStep = 0;
@@ -368,6 +374,22 @@ def create_animated_html_map(history: list,
             // Add default layer
             baseLayers['Light (CartoDB)'].addTo(map);
             window.currentBaseLayer = baseLayers['Light (CartoDB)'];
+
+            // Keep tract boundaries visible underneath the moving agents
+            map.createPane('tractsPane');
+            map.getPane('tractsPane').style.zIndex = 200;
+            map.getPane('tractsPane').style.pointerEvents = 'none';
+            L.geoJSON(tractsGeoJson, {{
+                pane: 'tractsPane',
+                style: function(feature) {{
+                    return {{
+                        color: '#444',
+                        weight: 1,
+                        opacity: 0.8,
+                        fillOpacity: 0.03
+                    }};
+                }}
+            }}).addTo(map);
         }}
         
         // Switch map theme
@@ -562,7 +584,8 @@ def create_animated_video(history: list,
         ax.clear()
         
         # Plot tracts
-        tracts_wgs84.plot(ax=ax, color='lightgray', edgecolor='white', linewidth=0.3, alpha=0.5)
+        tracts_wgs84.plot(ax=ax, color='#f2f2f2', edgecolor='#bdbdbd', linewidth=0.4, alpha=0.9)
+        tracts_wgs84.boundary.plot(ax=ax, color='#4a4a4a', linewidth=0.7, alpha=0.9)
         
         # Get agents for this frame
         agents = sampled_history[frame]

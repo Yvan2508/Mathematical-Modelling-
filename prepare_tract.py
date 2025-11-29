@@ -861,7 +861,9 @@ if __name__ == "__main__":
         fig, ax = plt.subplots(figsize=(12, 10))
         # Plot with single continuous colormap
         tracts_plot.plot(column=column, legend=True, ax=ax, cmap=cmap, 
-                        edgecolor='gray', linewidth=0.1, missing_kwds={'color': 'lightgray'})
+                        edgecolor='#777777', linewidth=0.25, missing_kwds={'color': 'lightgray'})
+        # Draw tract outlines clearly on top of the fill so boundaries are visible
+        tracts_plot.boundary.plot(ax=ax, color='#2f2f2f', linewidth=0.6, alpha=0.9)
         set_plot_bounds(fig, ax, bounds)
         ax.set_title(title, fontsize=14, fontweight='bold')
         ax.axis('off')
