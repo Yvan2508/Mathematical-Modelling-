@@ -26,20 +26,19 @@ from agents import GROUPS, G, R, income_from_rank
 
 # ---------- 1. Parameters ----------
 
-# Group-specific *baseline* upward/downward mobility intensities
-# Upward mobility: White > Asian > Hispanic > Black
-# Downward mobility: Black > Hispanic > Asian > White (opposite)
-phi = {  # upward mobility rates
-    "B": 0.03,  # Black: lowest upward mobility
-    "H": 0.05,  # Hispanic: third highest
-    "A": 0.07,  # Asian: second highest
-    "W": 0.10,  # White: highest upward mobility
-}
-psi = {  # downward mobility rates (opposite pattern)
-    "B": 0.10,  # Black: highest downward mobility
-    "H": 0.07,  # Hispanic: third highest
-    "A": 0.05,  # Asian: second highest
-    "W": 0.03,  # White: lowest downward mobility
+# Intergenerational income mobility parameters (research-based on Chetty et al. and related mobility literature
+INCOME_PERSISTENCE = 0.45  # Correlation between parent and child income (0.4-0.5 in research)
+NEIGHBORHOOD_EFFECT_STRENGTH = 0.5  # Impact of neighborhood quality on income mobility
+EDUCATION_PREMIUM = 0.15  # Rank increase per year of education beyond high school (12 years)
+INCOME_SHOCK_SD = 0.8  # Standard deviation of random income shocks
+
+# Group-specific mobility barriers (structural inequality)
+# Negative values = barriers to upward mobility, positive = advantages
+GROUP_MOBILITY_EFFECTS = {
+    "B": -0.4,  # Black: significant structural barriers
+    "H": -0.2,  # Hispanic: moderate barriers
+    "A": -0.1,  # Asian: slight barrier
+    "W": 0.0,  # White: baseline (no penalty/advantage)
 }
 
 # Fraction of people within each race that can experience income mobility each period
@@ -50,39 +49,6 @@ mu_income_mobility_by_group = {
     "A": 0.35,  # Asian: 35% can experience income mobility
     "W": 0.40,  # White: 40% can experience income mobility (highest)
 }
-
-# Build rank multipliers θ_j (up) and κ_j (down)
-def build_rank_multipliers(R: int):
-    """
-    θ_rank: inverted U over ranks (middle most upward mobile).
-    κ_rank: U-shaped over ranks (extremes most downward mobile).
-    Both scaled to [min_scale, max_scale].
-    """
-    ranks = np.arange(1, R + 1)
-    x = (ranks - 1) / (R - 1)  # normalize to [0,1]
-
-    theta_raw = 1.0 - 4.0 * (x - 0.5) ** 2    # inverted U
-    kappa_raw = 4.0 * (x - 0.5) ** 2          # U-shaped
-
-    min_scale, max_scale = 0.2, 1.0
-
-    theta_rank = min_scale + (max_scale - min_scale) * (
-        (theta_raw - theta_raw.min()) / (theta_raw.max() - theta_raw.min())
-    )
-    kappa_rank = min_scale + (max_scale - min_scale) * (
-        (kappa_raw - kappa_raw.min()) / (kappa_raw.max() - kappa_raw.min())
-    )
-
-    return theta_rank, kappa_rank
-
-theta_rank, kappa_rank = build_rank_multipliers(R)
-
-# Education effects for mobility
-def s_up(e):
-    return 1.0 + 0.03 * (e - 12)  # more education -> easier to move up
-
-def s_down(e):
-    return 1.0 / (1.0 + 0.03 * (e - 12))  # more education -> harder to fall
 
 # Rent dynamics parameters
 lambda_rent = 0.3
@@ -275,8 +241,12 @@ def income_transition_step(
     rng: np.random.Generator,
 ) -> pd.DataFrame:
     """
-    One-period update for income ranks using group-specific φ, ψ,
-    rank multipliers θ_rank, κ_rank, and education.
+    Realistic income transition based on:
+    1. Intergenerational persistence (research: ~0.4-0.5 correlation)
+    2. Neighborhood effects (Chetty et al.: neighborhood quality affects mobility)
+    3. Education returns (each year beyond high school increases income)
+    4. Group-specific mobility barriers (structural inequality)
+    5. Random economic shocks (business cycles, luck)
     
     Only a fraction (mu_income_mobility_by_group) of each group can experience
     income mobility each period. The fraction varies by race:
@@ -289,6 +259,15 @@ def income_transition_step(
     ranks = agents["rank"].values.copy()
     edu = agents["edu"].values
     group_arr = agents["group"].values
+    tract_idx = agents["tract_idx"].values
+
+    # Get tract characteristics (neighborhood quality)
+    if "amenity" in tracts.columns:
+        tract_amenity = tracts["amenity"].values[tract_idx]
+    elif "v_n" in tracts.columns:
+        tract_amenity = tracts["v_n"].values[tract_idx]
+    else:
+        tract_amenity = np.zeros(len(agents))
 
     new_ranks = ranks.copy()
 
@@ -299,6 +278,7 @@ def income_transition_step(
 
         ranks_g = ranks[mask]
         edu_g = edu[mask]
+        tract_amenity_g = tract_amenity[mask]
 
         # Only a fraction of this group can experience income mobility (varies by race)
         mu_g = mu_income_mobility_by_group.get(g_char, 0.3)
@@ -311,27 +291,41 @@ def income_transition_step(
             # Only process agents who can move
             ranks_movable = ranks_g[can_move]
             edu_movable = edu_g[can_move]
+            amenity_movable = tract_amenity_g[can_move]
 
-            phi_g = phi[g_char]
-            psi_g = psi[g_char]
+            # 1. INTERGENERATIONAL PERSISTENCE
+            # Expected rank = persistence * current_rank + (1 - persistence) * mean_rank
+            # Mean reversion: children of high-income parents tend to have lower income (and vice versa)
+            mean_rank = (R + 1) / 2  # Middle rank (5.5 for R=10)
+            expected_rank = INCOME_PERSISTENCE * ranks_movable + (1 - INCOME_PERSISTENCE) * mean_rank
 
-            theta_g = theta_rank[ranks_movable - 1]
-            kappa_g = kappa_rank[ranks_movable - 1]
+            # 2. NEIGHBORHOOD EFFECT (Chetty et al.)
+            # Better neighborhoods increase upward mobility
+            # tract_amenity is in [-0.5, 0.5], scale to meaningful rank changes
+            neighborhood_boost = NEIGHBORHOOD_EFFECT_STRENGTH * amenity_movable
 
-            p_up = (phi_g * s_up(edu_movable)) * theta_g
-            p_down = (psi_g * s_down(edu_movable)) * kappa_g
-            p_stay = 1.0 - p_up - p_down
-            p_stay = np.clip(p_stay, 0.0, 1.0)
+            # 3. EDUCATION PREMIUM
+            # Each year of education beyond high school (12 years) increases expected rank
+            education_boost = EDUCATION_PREMIUM * (edu_movable - 12.0)
 
-            u = rng.random(len(ranks_movable))
+            # 4. GROUP-SPECIFIC MOBILITY BARRIERS
+            # Structural inequality: some groups face barriers to upward mobility
+            group_effect = GROUP_MOBILITY_EFFECTS.get(g_char, 0.0)
 
-            move_up = (u < p_up) & (ranks_movable < R)
-            move_down = (u >= p_up) & (u < p_up + p_down) & (ranks_movable > 1)
+            # 5. RANDOM ECONOMIC SHOCKS
+            # Business cycles, personal luck, health shocks, etc.
+            shocks = rng.normal(0, INCOME_SHOCK_SD, size=len(ranks_movable))
+ 
+            # COMBINE ALL EFFECTS
+            new_rank_float = (expected_rank +
+                              neighborhood_boost +
+                              education_boost +
+                              group_effect +
+                              shocks)
 
-            ranks_movable_new = ranks_movable.copy()
-            ranks_movable_new[move_up] += 1
-            ranks_movable_new[move_down] -= 1
-            
+            # Discretize and bound to [1, R]
+            ranks_movable_new = np.clip(np.round(new_rank_float), 1, R).astype(int)
+
             # Update only the movable agents
             ranks_new_g[can_move] = ranks_movable_new
 
@@ -340,7 +334,6 @@ def income_transition_step(
     agents["rank"] = new_ranks
     agents["income"] = income_from_rank(new_ranks)
     return agents
-
 
 # ---------- 7. One-period update (full dynamics) ----------
 
@@ -372,7 +365,7 @@ def one_period_update(
     K = tracts["K"].values.astype(float)
 
     # 1) Income dynamics
-    agents = income_transition_step(agents, theta_rank, kappa_rank, rng)
+    agents = income_transition_step(agents, tracts, rng)
 
     # 2) Occupancy + shares at start of period (before moves)
     H_n, H_ng, s_ng = compute_tract_occupancy(agents, tracts)
