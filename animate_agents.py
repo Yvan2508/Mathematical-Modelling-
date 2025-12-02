@@ -21,6 +21,74 @@ import json
 
 
 # ==============================
+# Scale tract capacity for simulation
+# ==============================
+
+def scale_tract_capacity(tracts: gpd.GeoDataFrame,
+                         N_agents: int,
+                         target_occupancy: float = 0.95) -> gpd.GeoDataFrame:
+    """
+    Scale tract capacities to match simulation size while maintaining realistic occupancy.
+
+    This ensures that with fewer agents than the real population, we still have
+    realistic housing constraints and occupancy rates.
+
+    Parameters
+    ----------
+    tracts : GeoDataFrame
+        Tracts with 'K' (capacity) column
+    N_agents : int
+        Number of agents in simulation
+    target_occupancy : float
+        Desired occupancy rate (default 0.95 = 95% occupied)
+        Typical real-world occupancy is 90-95%
+
+    Returns
+    -------
+    GeoDataFrame with scaled 'K' values and original K saved as 'K_original'
+
+    Example
+    -------
+    If real Chicago has 1M housing units and you simulate 50K agents (5% of real):
+    - Original K per tract is scaled down by 5%
+    - Target occupancy ensures 95% of scaled capacity is filled
+    - Movement constraints remain realistic at simulation scale
+    """
+    tracts = tracts.copy()
+
+    # Calculate scaling factor
+    total_real_capacity = tracts['K'].sum()
+
+    # Target capacity = N_agents / target_occupancy
+    # (so when N_agents fill it, occupancy = target_occupancy)
+    target_total_capacity = N_agents / target_occupancy
+
+    scaling_factor = target_total_capacity / total_real_capacity
+
+    # Scale each tract's capacity proportionally
+    tracts['K_original'] = tracts['K']  # Keep original for reference
+    tracts['K'] = np.maximum(1, np.round(tracts['K'] * scaling_factor)).astype(int)
+
+    # Calculate actual occupancy after scaling
+    actual_occupancy = N_agents / tracts['K'].sum()
+
+    print("\n" + "=" * 60)
+    print("CAPACITY SCALING FOR SIMULATION")
+    print("=" * 60)
+    print(f"Original total capacity:     {total_real_capacity:>12,.0f} housing units")
+    print(f"Scaled total capacity:       {tracts['K'].sum():>12,.0f} housing units")
+    print(f"Number of agents:            {N_agents:>12,.0f} households")
+    print(f"Target occupancy rate:       {target_occupancy:>12.1%}")
+    print(f"Actual occupancy rate:       {actual_occupancy:>12.1%}")
+    print(f"Scaling factor:              {scaling_factor:>12.4f}")
+    print(f"\nThis maintains realistic housing constraints at simulation scale.")
+    print("=" * 60 + "\n")
+
+    return tracts
+
+
+
+# ==============================
 # Run simulation using real dynamics
 # ==============================
 
@@ -749,19 +817,40 @@ if __name__ == "__main__":
         print("Loading tracts...")
         tracts = gpd.read_file(tracts_path)
         
-        # Initialize agents
+
+        # ====================================================
+        # SIMULATION CONFIGURATION
+        # ====================================================
+        N_agents = 50_000  # Number of agents to simulate (scaled down from real population)
+        target_occupancy = 0.95  # Target 95% occupancy rate (realistic)
+        T_periods = 100  # Number of simulation periods
+        use_base_model = False  # True = simple model (only group preferences), False = full model
+
+        print(f"\n{'=' * 60}")
+        print("SIMULATION CONFIGURATION")
+        print(f"{'=' * 60}")
+        print(f"Number of agents:            {N_agents:>12,}")
+        print(f"Target occupancy rate:       {target_occupancy:>12.1%}")
+        print(f"Simulation periods:          {T_periods:>12,}")
+        print(f"Model type:                  {'Base (simplified)' if use_base_model else 'Full (realistic)'}")
+        print(f"{'=' * 60}\n")
+
+        # Scale tract capacities to match simulation size
+        tracts = scale_tract_capacity(tracts, N_agents, target_occupancy=target_occupancy)
+
+        # Initialize agents with scaled tracts
         print("Initializing agents...")
-        # Use a smaller number for faster testing, or None for full simulation
         agents = initialize_agents(
             tracts,
-            N_households=10000,  # Doubled from 10000
+            N_households=N_agents,
             use_tract_shares=True,
             seed=42
         )
         print(f"Initialized {len(agents)} agents (households)")
-        
-        # Choose model variant
-        use_base_model = True  # Simple model: only own-group share preferences (no rents/amenities)
+
+        # Verify occupancy
+        actual_occupancy = len(agents) / tracts['K'].sum()
+        print(f"Actual initial occupancy: {actual_occupancy:.1%}")
 
         # Run simulation
         print("\nRunning simulation with real dynamics..." if not use_base_model else "\nRunning simulation with base model...")
