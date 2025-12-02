@@ -145,6 +145,36 @@ In the main execution block, set:
   - `chicago_tracts_interactive.html`: Folium map with toggleable layers for all attributes
   - Features: Multiple base maps, tooltips with attribute values, layer controls
 
+## Income dynamics: 
+The income dynamics model is based on empirical research on economic mobility, primarily from Raj Chetty's landmark studies. There are five Key Components:
+- Intergenerational Persistence (45% correlation)
+
+- Children's incomes correlate with parents' at ~0.45 (research finding)
+
+- Neighborhood Effects: Living in high-amenity neighborhoods boosts upward mobility. Good schools, low crime, parks, transit access all contribute
+Poor neighborhoods can create barriers to advancement
+
+- Education Returns: Each year of education beyond high school reflects real-world wage premiums for education
+ 
+- Group-Specific Structural Barriers
+- This model also accounts for Random Economic Shocks
+
+## Rent Dynamics: Rent Dynamics (Income-Based Hedonic Model)
+The new rent model is based on urban economics research (Rosen 1974, Epple & Sieg 1999). 
+Five Key Components:
+- Neighborhood Income Effect: Rents respond to who lives in the neighborhood, this captures willingness to pay: richer residents bid up rents
+Creates gentrification dynamics: as high-income households move in, rents rise
+
+- Non-Linear Occupancy Pressure: Captures real market dynamics: tight markets see accelerating rent growth (more occupancey -> more desired housing -> higher rents)
+
+- Amenity Premium: High-amenity tracts (good schools, parks, transit, low crime) command higher rents
+
+-Spatial Spillovers: If neighboring tracts have high rents, your rent can increase too. This captures neighborhood effects and spatial correlation
+
+-Sticky Adjustment: Rents don't adjust instantly
+
+
+
 ## Key Design Decisions
 
 1. **Census API vs. Placeholder Data**: The script supports both real Census data and placeholder data for testing. Real data uses 2019 ACS 5-year estimates.
