@@ -105,7 +105,6 @@ def add_commute_cost(tracts: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     employment_centers = {
         'Loop': Point(-87.6298, 41.8781),           # Chicago downtown (The Loop)
         'OHare': Point(-87.9090, 41.9810),          # O'Hare area
-        'Elk_Grove': Point(-87.9700, 41.9900),      # Elk Grove
         'Calumet': Point(-87.5700, 41.6900)         # Calumet
     }
     
